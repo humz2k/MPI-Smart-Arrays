@@ -1,7 +1,7 @@
 main:
 	mpicxx smart-array.cpp -o smart-array.o
 
-N ?= 2
+N ?= 8
 
 run:
 	mpirun -n $(N) ./smart-array.o
