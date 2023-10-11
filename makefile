@@ -1,10 +1,10 @@
 main:
-	mpicxx smart-array.cpp -o smart-array.o
+	mpicxx -O3 fft_test.cpp -o fft_test.o -fopenmp
 
 N ?= 8
 
 run:
-	mpirun -n $(N) ./smart-array.o
+	mpirun -n $(N) ./fft_test.o
 
 clean:
 	rm *.o

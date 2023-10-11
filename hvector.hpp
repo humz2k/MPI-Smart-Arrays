@@ -1,3 +1,6 @@
+#ifndef _SMARR_HVECTOR_
+#define _SMARR_HVECTOR_
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -91,3 +94,4 @@ inline hvec3<T> make_hvec3(T x, T y, T z){
     return out;
 }
 
+#endif
