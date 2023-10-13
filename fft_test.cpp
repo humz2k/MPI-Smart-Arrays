@@ -72,11 +72,11 @@ void test(){
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
-    map_1 map1(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
+    /*map_1 map1(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
     SmartMap<map_1> my_smart_map_1(MPI_COMM_WORLD,nlocal,map1);
 
     map_2 map2(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
-    SmartMap<map_2> my_smart_map_2(MPI_COMM_WORLD,nlocal,map2);
+    SmartMap<map_2> my_smart_map_2(MPI_COMM_WORLD,nlocal,map2);*/
 
     map_3 map3(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
     SmartMap<map_3> my_smart_map_3(MPI_COMM_WORLD,nlocal,map3);
@@ -85,34 +85,62 @@ void test(){
 
     //double start = MPI_Wtime();
 
-    my_smart_map_1.forward(buff1,buff2);
+    //my_smart_map_1.forward(buff1,buff2);
     //MPI_Barrier(MPI_COMM_WORLD);
-    if(world_rank == print_rank){
+    /*if(world_rank == print_rank){
         printf("\n\n");
         for (int i = 0; i < nlocal; i++){
             printf("rank %d: buff2[%d] = [%d,%d,%d]\n",world_rank,i,buff2[i].x,buff2[i].y,buff2[i].z);
         }
-    }
+    }*/
     //MPI_Barrier(MPI_COMM_WORLD);
-    my_smart_map_2.forward(buff2,buff1);
+    //my_smart_map_2.forward(buff2,buff1);
     //MPI_Barrier(MPI_COMM_WORLD);
     
-    if(world_rank == print_rank){
+    /*if(world_rank == print_rank){
         printf("\n\n");
         for (int i = 0; i < nlocal; i++){
             printf("rank %d: buff1[%d] = [%d,%d,%d]\n",world_rank,i,buff1[i].x,buff1[i].y,buff1[i].z);
         }
-    }
+    }*/
     //MPI_Barrier(MPI_COMM_WORLD);
-    my_smart_map_3.forward(buff1,buff2);
+    //my_smart_map_3.forward(buff1,buff2);
     //MPI_Barrier(MPI_COMM_WORLD);
     
-    if(world_rank == print_rank){
+    /*if(world_rank == print_rank){
         printf("\n\n");
         for (int i = 0; i < nlocal; i++){
             printf("rank %d: buff2[%d] = [%d,%d,%d]\n",world_rank,i,buff2[i].x,buff2[i].y,buff2[i].z);
         }
-    }
+    }*/
+
+    //my_smart_map_3.backward(buff2,buff1);
+
+    /*if(world_rank == print_rank){
+        printf("\n\n");
+        for (int i = 0; i < nlocal; i++){
+            printf("rank %d: buff1[%d] = [%d,%d,%d]\n",world_rank,i,buff1[i].x,buff1[i].y,buff1[i].z);
+        }
+    }*/
+
+    //my_smart_map_2.backward(buff1,buff2);
+
+    /*if(world_rank == print_rank){
+        printf("\n\n");
+        for (int i = 0; i < nlocal; i++){
+            printf("rank %d: buff2[%d] = [%d,%d,%d]\n",world_rank,i,buff2[i].x,buff2[i].y,buff2[i].z);
+        }
+    }*/
+
+    //my_smart_map_1.backward(buff2,buff1);
+
+    /*if(world_rank == print_rank){
+        printf("\n\n");
+        for (int i = 0; i < nlocal; i++){
+            printf("rank %d: buff1[%d] = [%d,%d,%d]\n",world_rank,i,buff1[i].x,buff1[i].y,buff1[i].z);
+        }
+    }*/
+
     //MPI_Barrier(MPI_COMM_WORLD);
 
     free(buff1);
