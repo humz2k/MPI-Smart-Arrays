@@ -19,7 +19,8 @@ class map_1{
 
         inline map_return_t get(int idx){
             int out_rank = (comm_rank + 1)%comm_size;
-            return make_map_return(out_rank,(idx*2)%n);
+            int out_idx = (idx + (idx/5)*2)%n;
+            return make_map_return(out_rank,out_idx);
         }
 
 };
