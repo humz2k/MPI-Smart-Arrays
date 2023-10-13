@@ -14,6 +14,11 @@ struct cell{
     int z;
 };
 
+struct double2{
+    double x;
+    double y;
+};
+
 inline cell make_cell(int x, int y, int z){
     cell out;
     out.x = x;
@@ -23,7 +28,7 @@ inline cell make_cell(int x, int y, int z){
 }
 
 void test(){
-    hvec3<int> ng = make_hvec3(8,8,8);
+    hvec3<int> ng = make_hvec3(128,128,128);
     int world_rank;
     int world_size;
     MPI_Comm_rank(MPI_COMM_WORLD,&world_rank);
@@ -52,8 +57,8 @@ void test(){
         printf("Optimal memory: %d | Actual memory: %d | Diff percent: %g\n",ng.x*ng.y*ng.z,nlocal*world_size,(((double)(nlocal*world_size - ng.x*ng.y*ng.z))/((double)ng.x*ng.y*ng.z))*100);
     }
 
-    cell* buff1 = (cell*)malloc(sizeof(cell)*nlocal);
-    cell* buff2 = (cell*)malloc(sizeof(cell)*nlocal);
+    double2* buff1 = (double2*)malloc(sizeof(double2)*nlocal);
+    double2* buff2 = (double2*)malloc(sizeof(double2)*nlocal);
 
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -64,28 +69,29 @@ void test(){
                 int x = i + local_grid_size[0] * coords[0];
                 int y = j + local_grid_size[1] * coords[1];
                 int z = k + local_grid_size[2] * coords[2];
-                //int global_idx = x * ng.y * ng.z + y * ng.z + z;
-                buff1[idx] = make_cell(x,y,z);
+                int global_idx = x * ng.y * ng.z + y * ng.z + z;
+                buff1[idx].x = global_idx;//make_cell(x,y,z);
+                buff1[idx].y = global_idx;//make_cell(x,y,z);
                 idx++;
             }
         }
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
-    /*map_1 map1(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
+    map_1 map1(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
     SmartMap<map_1> my_smart_map_1(MPI_COMM_WORLD,nlocal,map1);
 
     map_2 map2(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
-    SmartMap<map_2> my_smart_map_2(MPI_COMM_WORLD,nlocal,map2);*/
+    SmartMap<map_2> my_smart_map_2(MPI_COMM_WORLD,nlocal,map2);
 
     map_3 map3(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
     SmartMap<map_3> my_smart_map_3(MPI_COMM_WORLD,nlocal,map3);
 
     int print_rank = 0;
 
-    //double start = MPI_Wtime();
+    double start = MPI_Wtime();
 
-    //my_smart_map_1.forward(buff1,buff2);
+    my_smart_map_1.forward(buff1,buff2);
     //MPI_Barrier(MPI_COMM_WORLD);
     /*if(world_rank == print_rank){
         printf("\n\n");
@@ -94,7 +100,7 @@ void test(){
         }
     }*/
     //MPI_Barrier(MPI_COMM_WORLD);
-    //my_smart_map_2.forward(buff2,buff1);
+    my_smart_map_2.forward(buff2,buff1);
     //MPI_Barrier(MPI_COMM_WORLD);
     
     /*if(world_rank == print_rank){
@@ -104,7 +110,11 @@ void test(){
         }
     }*/
     //MPI_Barrier(MPI_COMM_WORLD);
-    //my_smart_map_3.forward(buff1,buff2);
+    my_smart_map_3.forward(buff1,buff2);
+
+    double end = MPI_Wtime();
+
+    printf("Time = %g\n",end-start);
     //MPI_Barrier(MPI_COMM_WORLD);
     
     /*if(world_rank == print_rank){

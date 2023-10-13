@@ -29,7 +29,7 @@ class ContigGet{
         bool init;
     
     public:
-        inline ContigGet() : init(false){
+        inline ContigGet(){
 
         }
 
@@ -198,43 +198,12 @@ class SmartMap{
         inline void reduce(std::vector<ContigGet>& gets, std::vector<SecondaryGet>& sgets, std::vector<ContigGet>& local_gets){
             bool reset_local = true;
             bool reset_global = false;
-            int notify_every = n/100;
-            /*int last_idx = 0;
-            int last_rank = -1;
-            int ncontig_extern = 0;
-            int ncontig_local = 0;
-            int ncontig_per_rank[comm_size];
-            for (int i = 0; i < comm_size; i++){
-                ncontig_per_rank[i] = 0;
-            }
             for (int i = 0; i < n; i++){
-                map_return_t out = map.get(i);
-                if (last_rank == out.rank){
-                    if (last_idx + 1 == out.idx){
-                        last_idx = out.idx;
-                        continue;
+                if (i % (n/100) == 0){
+                    if (!comm_rank){
+                        printf("%g done\n",(double)i/(double)n);
                     }
                 }
-                last_idx = out.idx;
-                last_rank = out.rank;
-                if (out.rank == comm_rank){
-                    ncontig_local++;
-                    continue;
-                }
-                ncontig_per_rank[out.rank]++;
-                ncontig_extern++;
-            }
-            int starts[comm_size];
-            starts[0] = 0;
-            for (int i = 1; i < comm_size; i++){
-                starts[i] = starts[i-1] + ncontig_per_rank[i-1];
-            }*/
-            gets.reserve(n);
-            //local_gets.reserve(ncontig_local);
-            //printf("ncontig_local = %d, ncontig_extern = %d\n",ncontig_local,ncontig_extern);
-            //gets.reserve(n);
-            for (int i = 0; i < n; i++){
-                if (((i%notify_every) == 0) && (!comm_rank))printf("%g percent done\n",100*((double)i/(double)n));
                 map_return_t out = map.get(i);
                 if (out.rank == comm_rank){
                     if ((local_gets.size() != 0) && (!reset_local)){
@@ -255,12 +224,11 @@ class SmartMap{
                 if (!reset_global){
                     if (gets.size() != 0){
                         if (gets[gets.size()-1].add(out)){
-                            //if(!comm_rank)printf("exists");
                             continue;
                         }
                     }
                 }
-                //if(!comm_rank)printf("doesn't exist\n");
+
                 reset_global = false;
                 
 
@@ -269,7 +237,6 @@ class SmartMap{
                 for (int j = 0; j < sgets.size(); j++){
                     if (sgets[j].add(out)){
                         found_secondary = true;
-                        //if(!comm_rank)printf("is existing secondary\n");
                         break;
                     }
                 }
@@ -278,7 +245,6 @@ class SmartMap{
                 
                 for (int j = 0; j < gets.size(); j++){
                     if (gets[j].is_secondary(out)){
-                        //if(!comm_rank)printf("is new secondary\n");
                         SecondaryGet tmp(gets[j],gets[j].get_secondary_offset(out.idx),i);
                         sgets.push_back(tmp);
                         found_secondary = true;
@@ -287,9 +253,8 @@ class SmartMap{
                 }
 
                 if (found_secondary)continue;
-                //if(!comm_rank)printf("is new!\n");
-                gets.data()[gets.size()] = ContigGet(out,i);
-                //gets.push_back(ContigGet(out,i));
+
+                gets.push_back(ContigGet(out,i));
             }
         }
 

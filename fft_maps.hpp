@@ -117,6 +117,14 @@ class map_2{
 
 };
 
+/*inline int rerack_addr(int i, int ngz, int ngy){
+    int x = 0;
+    int z = i / ngz;
+    int y = i % (ngz);
+    return z * ngz * ngy + y * ngy + x;
+
+}*/
+
 class map_3{
     private:
         MPI_Comm comm;
