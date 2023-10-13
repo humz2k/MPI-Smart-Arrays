@@ -117,5 +117,53 @@ class map_2{
 
 };
 
+class map_3{
+    private:
+        MPI_Comm comm;
+        hvec3<int> ng;
+        hvec3<int> local_grid_size;
+        hvec3<int> dims;
+        hvec3<int> coords;
+        int world_rank;
+        int world_size;
+        int nlocal;
+        int total_pencils;
+        int pencils_per_rank;
+        int total_per_rank;
+    
+    public:
+        inline map_3(MPI_Comm comm_, hvec3<int> ng_, hvec3<int> local_grid_size_, hvec3<int> dims_, hvec3<int> coords_, int nlocal_) : comm(comm_), ng(ng_), local_grid_size(local_grid_size_), dims(dims_), coords(coords_), nlocal(nlocal_){
+            MPI_Comm_size(comm,&world_size);
+            MPI_Comm_rank(comm,&world_rank);
+            total_pencils = ng.z * ng.y;
+            pencils_per_rank = total_pencils / world_size;
+            total_per_rank = pencils_per_rank * ng.x;
+
+        }
+
+        inline ~map_3(){
+
+        }
+
+        inline map_return_t get(int i){
+            
+            int this_pencil = i / ng.x;
+            int this_pencil_start = world_rank * pencils_per_rank + this_pencil;
+            int pencil_z = this_pencil_start / ng.y;
+            int pencil_y = this_pencil_start % ng.y;
+            int pencil_x = i%ng.x;
+
+            int idx = pencil_x * ng.y * ng.z + pencil_y * ng.z + pencil_z;
+
+            int pencil_id = pencil_x * ng.z + pencil_z;
+            int rank = pencil_id / ((ng.x*ng.z)/world_size);
+            int local_idx = idx % (((ng.x*ng.z)/world_size) * ng.y);
+
+            return make_map_return(rank,local_idx);
+            
+        }
+
+};
+
 
 #endif
