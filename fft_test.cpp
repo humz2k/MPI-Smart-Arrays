@@ -94,7 +94,7 @@ void test(){
         }
     }
     //MPI_Barrier(MPI_COMM_WORLD);
-    /*my_smart_map_2.forward(buff2,buff1);
+    my_smart_map_2.forward(buff2,buff1);
     //MPI_Barrier(MPI_COMM_WORLD);
     
     if(world_rank == print_rank){
@@ -113,7 +113,7 @@ void test(){
             printf("rank %d: buff2[%d] = [%d,%d,%d]\n",world_rank,i,buff2[i].x,buff2[i].y,buff2[i].z);
         }
     }
-    //MPI_Barrier(MPI_COMM_WORLD);*/
+    //MPI_Barrier(MPI_COMM_WORLD);
 
     free(buff1);
     free(buff2);

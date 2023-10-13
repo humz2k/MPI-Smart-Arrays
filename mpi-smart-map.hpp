@@ -507,6 +507,9 @@ class SmartMap{
             int n_buffered = 0;
             int current_rank_start = 0;
             int current_n = 0;
+
+            MPI_Request send_reqs[comm_size];
+
             for (int i = 0; i < total_sends; i++){
                 int n = send_counts[i];
                 int in_idx = send_idxs[i];
@@ -518,39 +521,20 @@ class SmartMap{
 
                 current_n += n;
                 if (current_n == send_per_rank[dest]){
-                    MPI_Request req;
                     T* in_buff = &out[current_rank_start];
-                    MPI_Isend(in_buff,current_n*sizeof(T),MPI_BYTE,dest,0,comm,&req);
-                    MPI_Request_free(&req);
+                    MPI_Isend(in_buff,current_n*sizeof(T),MPI_BYTE,dest,0,comm,&send_reqs[dest]);
                     current_rank_start = n_buffered;
                     current_n = 0;
                 }
             }
             int local_start = n_buffered;
 
-            n_buffered = 0;
-
-            //MPI_Request send_reqs[comm_size];
-            
-            /*for (int i = 0; i < comm_size; i++){
-                int n = send_per_rank[i];
-                if (n == 0)continue;
-                T* in_buff = &out[n_buffered];
-                //MPI_Request req;
-                MPI_Isend(in_buff,n*sizeof(T),MPI_BYTE,i,0,comm,&send_reqs[i]);
-                //MPI_Request_free(&req);
-                printf("rank %d sending to rank %d\n",comm_rank,i);
-                n_buffered += n;
-            }*/
-
-            n_buffered = local_start;
             for (int i = 0; i < total_local; i++){
                 int n = local_counts[i];
                 int in_idx = local_sources[i];
                 T* in_buff = &in[in_idx];
                 int out_idx = local_idxs[i];
                 T* out_buff = &out[n_buffered];
-                //if(!comm_rank)printf("rank %d moving local %d to %d, size %d\n",comm_rank,in_idx,out_idx,n);
                 memcpy(out_buff,in_buff,n*sizeof(T));
                 n_buffered += n;
             }
@@ -563,11 +547,22 @@ class SmartMap{
                 int n = recv_per_rank[i];
                 if (n==0)continue;
                 T* out_buff = &in[n_buffered];
-                MPI_Request req;
+                //MPI_Request req;
                 printf("rank %d recv from rank %d\n",comm_rank,i);
                 MPI_Irecv(out_buff,n*sizeof(T),MPI_BYTE,i,0,comm,&recv_reqs[i]);
                 //MPI_Wait(&req,MPI_STATUS_IGNORE);
                 n_buffered += n;
+            }
+
+            for (int i = 0; i < comm_size; i++){
+                if (send_per_rank[i] == 0)continue;
+                MPI_Wait(&send_reqs[i],MPI_STATUS_IGNORE);
+            }
+
+            int wait_count[comm_size];
+
+            for (int i = 0; i < comm_size; i++){
+                wait_count[i] = 0;
             }
 
             for (int i = 0; i < total_local; i++){
@@ -584,6 +579,11 @@ class SmartMap{
 
             n_buffered = 0;
             for (int i = 0; i < total_recvs; i++){
+                int r_rank = recv_ranks[i];
+                if(wait_count[r_rank] == 0){
+                    MPI_Wait(&recv_reqs[r_rank],MPI_STATUS_IGNORE);
+                    wait_count[r_rank]++;
+                }
                 int n = recv_counts[i];
                 int out_idx = recv_idxs[i];
                 T* in_buff = &in[n_buffered];
