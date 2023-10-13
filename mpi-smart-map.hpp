@@ -190,6 +190,11 @@ class SmartMap{
         int* local_counts;
         int* local_sources;
 
+        int* send_per_rank;
+        int* recv_per_rank;
+
+        int total_recv_size;
+
     public:
         inline void reduce(std::vector<ContigGet>& gets, std::vector<SecondaryGet>& sgets, std::vector<ContigGet>& local_gets){
             bool reset_local = true;
@@ -420,6 +425,30 @@ class SmartMap{
 
             fill_send_info(s_origin,s_n,nsends);
 
+            for (int i = 0; i < comm_size; i++){
+                send_per_rank[i] = 0;
+                recv_per_rank[i] = 0;
+            }
+
+            for (int i = 0; i < total_sends; i++){
+                int count = send_counts[i];
+                int rank = send_ranks[i];
+                send_per_rank[rank] += count;
+            }
+            
+            total_recv_size = 0;
+            for (int i = 0; i < total_recvs; i++){
+                int count = recv_counts[i];
+                int rank = recv_ranks[i];
+                recv_per_rank[rank] += count;
+                total_recv_size += count;
+            }
+
+            for (int i = 0; i < comm_size; i++){
+                printf("rank %d send %d to   rank %d\n",comm_rank,send_per_rank[i],i);
+                printf("rank %d recv %d from rank %d\n",comm_rank,recv_per_rank[i],i);
+            }
+
             /*for (int i = 0; i < total_sends; i++){
                 printf("rank %d sending %d from %d to rank %d (tag = %d)\n",comm_rank,send_counts[i],send_idxs[i],send_ranks[i],send_tags[i]);
             }
@@ -437,9 +466,11 @@ class SmartMap{
         inline SmartMap(MPI_Comm comm_, int n_, MapT map_) : comm(comm_), n(n_), map(map_),send_counts(NULL),send_idxs(NULL),send_ranks(NULL),send_tags(NULL),
                                                                         recv_counts(NULL),recv_idxs(NULL),recv_ranks(NULL),recv_tags(NULL),
                                                                         secondary_counts(NULL), secondary_idxs(NULL), secondary_sources(NULL),
-                                                                        local_counts(NULL),local_idxs(NULL),local_sources(NULL){
+                                                                        local_counts(NULL),local_idxs(NULL),local_sources(NULL),send_per_rank(NULL),recv_per_rank(NULL){
             MPI_Comm_size(comm,&comm_size);
             MPI_Comm_rank(comm,&comm_rank);
+            send_per_rank = (int*)malloc(sizeof(int)*comm_size);
+            recv_per_rank = (int*)malloc(sizeof(int)*comm_size);
             setup_map();
             MPI_Barrier(comm);
             for (int i = 0; i < comm_size; i++){
@@ -466,11 +497,109 @@ class SmartMap{
             if(local_counts)free(local_counts);
             if(local_idxs)free(local_idxs);
             if(local_sources)free(local_sources);
+            if(send_per_rank)free(send_per_rank);
+            if(recv_per_rank)free(recv_per_rank);
         }
 
         template<class T>
         inline void forward(T* in, T* out){
+            
+            int n_buffered = 0;
+
             for (int i = 0; i < total_sends; i++){
+                int n = send_counts[i];
+                int in_idx = send_idxs[i];
+                T* in_buff = &in[in_idx];
+                int dest = send_ranks[i];
+                T* out_buff = &out[n_buffered];
+                memcpy(out_buff,in_buff,n*sizeof(T));
+                n_buffered += n;
+            }
+            int local_start = n_buffered;
+
+            n_buffered = 0;
+            
+            for (int i = 0; i < comm_size; i++){
+                int n = send_per_rank[i];
+                if (n == 0)continue;
+                T* in_buff = &out[n_buffered];
+                MPI_Request req;
+                MPI_Isend(in_buff,n*sizeof(T),MPI_BYTE,i,0,comm,&req);
+                MPI_Request_free(&req);
+                printf("rank %d sending to rank %d\n",comm_rank,i);
+                n_buffered += n;
+            }
+
+            n_buffered = local_start;
+            for (int i = 0; i < total_local; i++){
+                int n = local_counts[i];
+                int in_idx = local_sources[i];
+                T* in_buff = &in[in_idx];
+                int out_idx = local_idxs[i];
+                T* out_buff = &out[n_buffered];
+                //if(!comm_rank)printf("rank %d moving local %d to %d, size %d\n",comm_rank,in_idx,out_idx,n);
+                memcpy(out_buff,in_buff,n*sizeof(T));
+                n_buffered += n;
+            }
+            
+            n_buffered = 0;
+
+            for (int i = 0; i < comm_size; i++){
+                int n = recv_per_rank[i];
+                if (n==0)continue;
+                T* out_buff = &in[n_buffered];
+                MPI_Request req;
+                printf("rank %d recv from rank %d\n",comm_rank,i);
+                MPI_Irecv(out_buff,n*sizeof(T),MPI_BYTE,i,0,comm,&req);
+                MPI_Wait(&req,MPI_STATUS_IGNORE);
+                n_buffered += n;
+            }
+
+            for (int i = 0; i < total_local; i++){
+                int n = local_counts[i];
+                //int in_idx = local_sources[i];
+                T* in_buff = &out[local_start];
+                //int out_idx = local_idxs[i];
+                T* out_buff = &in[n_buffered];
+                //if(!comm_rank)printf("rank %d moving local %d to %d, size %d\n",comm_rank,in_idx,out_idx,n);
+                memcpy(out_buff,in_buff,n*sizeof(T));
+                n_buffered += n;
+                local_start += n;
+            }
+
+            n_buffered = 0;
+            for (int i = 0; i < total_recvs; i++){
+                int n = recv_counts[i];
+                int out_idx = recv_idxs[i];
+                T* in_buff = &in[n_buffered];
+                T* out_buff = &out[out_idx];
+                memcpy(out_buff,in_buff,n*sizeof(T));
+                n_buffered += n;
+            }
+
+            for (int i = 0; i < total_local; i++){
+                int n = local_counts[i];
+                //int in_idx = local_sources[i];
+                T* in_buff = &in[n_buffered];
+                int out_idx = local_idxs[i];
+                T* out_buff = &out[out_idx];
+                //if(!comm_rank)printf("rank %d moving local %d to %d, size %d\n",comm_rank,in_idx,out_idx,n);
+                memcpy(out_buff,in_buff,n*sizeof(T));
+                n_buffered += n;
+            }
+
+            /*for (int i = 0; i < total_local; i++){
+                int n = local_counts[i];
+                int in_idx = local_sources[i];
+                T* in_buff = &out[n_buffered];
+                int out_idx = local_idxs[i];
+                T* out_buff = &in[out_idx];
+                //if(!comm_rank)printf("rank %d moving local %d to %d, size %d\n",comm_rank,in_idx,out_idx,n);
+                memcpy(out_buff,in_buff,n*sizeof(T));
+                n_buffered += n;
+            }*/
+
+            /*for (int i = 0; i < total_sends; i++){
                 int n = send_counts[i];
                 int in_idx = send_idxs[i];
                 T* in_buff = &in[in_idx];
@@ -513,7 +642,7 @@ class SmartMap{
                 //if(!comm_rank)printf("rank %d mapping %d items from %d to %d\n",comm_rank,n,source_idx,dest_idx);
                 memcpy(&out[dest_idx],&out[source_idx],n*sizeof(T));
                 //if(!comm_rank)printf("rank %d mapped %d items from %d to %d\n",comm_rank,n,source_idx,dest_idx);
-            }
+            }*/
             
         }
 
