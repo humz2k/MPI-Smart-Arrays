@@ -75,8 +75,8 @@ void test(){
     map_1 map1(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
     SmartMap<map_1> my_smart_map_1(MPI_COMM_WORLD,nlocal,map1);
 
-    /*map_2 map2(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
-    SmartMap<map_2> my_smart_map_2(MPI_COMM_WORLD,nlocal,map2);*/
+    map_2 map2(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
+    SmartMap<map_2> my_smart_map_2(MPI_COMM_WORLD,nlocal,map2);
 
     my_smart_map_1.forward(buff1,buff2);
     MPI_Barrier(MPI_COMM_WORLD);
@@ -87,7 +87,7 @@ void test(){
         }
     }
     MPI_Barrier(MPI_COMM_WORLD);
-    /*my_smart_map_2.forward(buff2,buff1);
+    my_smart_map_2.forward(buff2,buff1);
     MPI_Barrier(MPI_COMM_WORLD);
     
     if(!world_rank){
@@ -96,7 +96,7 @@ void test(){
             printf("rank %d: buff1[%d] = [%d,%d,%d]\n",world_rank,i,buff1[i].x,buff1[i].y,buff1[i].z);
         }
     }
-    MPI_Barrier(MPI_COMM_WORLD);*/
+    MPI_Barrier(MPI_COMM_WORLD);
 
     free(buff1);
     free(buff2);

@@ -199,11 +199,11 @@ class SmartMap{
                 if (out.rank == comm_rank){
                     if ((local_gets.size() != 0) && (!reset_local)){
                         if (local_gets[local_gets.size()-1].add(out)){
-                            if(!comm_rank)printf("Adding contig! %d, %d\n",out.idx,i);
+                            //if(!comm_rank)printf("Adding contig! %d, %d\n",out.idx,i);
                             continue;
                         }
                     }
-                    if(!comm_rank)printf("Should be new contig? %d, %d\n",out.idx,i);
+                    //if(!comm_rank)printf("Should be new contig? %d, %d\n",out.idx,i);
                     local_gets.push_back(ContigGet(out,i));
                     reset_local = false;
                     reset_global = true;
@@ -489,7 +489,7 @@ class SmartMap{
                 T* in_buff = &in[in_idx];
                 int out_idx = local_idxs[i];
                 T* out_buff = &out[out_idx];
-                if(!comm_rank)printf("rank %d moving local %d to %d, size %d\n",comm_rank,in_idx,out_idx,n);
+                //if(!comm_rank)printf("rank %d moving local %d to %d, size %d\n",comm_rank,in_idx,out_idx,n);
                 memcpy(out_buff,in_buff,n*sizeof(T));
             }
 
