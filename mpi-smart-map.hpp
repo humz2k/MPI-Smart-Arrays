@@ -68,6 +68,48 @@ class ContigGet{
         inline int get_rank(){
             return rank;
         }
+
+        inline int send_start(){
+            return get_start;
+        }
+
+        inline int recv_start(){
+            return dest_start;
+        }
+
+        inline int send_n(){
+            return n;
+        }
+};
+
+class UnifiedGet{
+    private:
+        std::vector<ContigGet> my_gets;
+        int rank;
+    
+    public:
+        inline UnifiedGet(int rank_) : rank(rank_){
+
+        }
+
+        inline ~UnifiedGet(){};
+
+        inline void add(ContigGet get){
+            my_gets.push_back(get);
+        }
+
+        inline int get_n(){
+            return my_gets.size();
+        }
+
+        inline void fill_sends(int* origin, int* n, int* dest){
+            for (int i = 0; i < my_gets.size(); i++){
+                origin[i] = my_gets[i].send_start();
+                n[i] = my_gets[i].send_n();
+                dest[i] = my_gets[i].recv_start();
+            }
+        }
+
 };
 
 class SecondaryGet{
@@ -93,6 +135,18 @@ class SecondaryGet{
             return true;
         }
 
+        inline int get_source(){
+            return offset;
+        }
+
+        inline int get_count(){
+            return n;
+        }
+
+        inline int get_idx(){
+            return dest_start;
+        }
+
 };
 
 struct send_recv_t{
@@ -102,24 +156,34 @@ struct send_recv_t{
     int dest;
 };
 
-template<class T, class MapT>
+template<class MapT>
 class SmartMap{
     private:
         int comm_size;
         int comm_rank;
         MPI_Comm comm;
         MapT map;
-        T* raw;
-        send_recv_t** recv_data;
-        send_recv_t** send_data;
+        int total_recvs;
+        int total_sends;
+        int total_secondary;
         int n;
 
+        int* send_ranks;
+        int* send_idxs;
+        int* send_counts;
+        int* send_tags;
+
+        int* recv_ranks;
+        int* recv_idxs;
+        int* recv_counts;
+        int* recv_tags;
+
+        int* secondary_idxs;
+        int* secondary_counts;
+        int* secondary_sources;
+
     public:
-        inline void setup_map(){
-
-            std::vector<ContigGet> gets;
-            std::vector<SecondaryGet> sgets;
-
+        inline void reduce(std::vector<ContigGet>& gets, std::vector<SecondaryGet>& sgets){
             for (int i = 0; i < n; i++){
                 map_return_t out = map.get(i);
                 if (gets.size() != 0){
@@ -131,6 +195,7 @@ class SmartMap{
 
                 for (int j = 0; j < sgets.size(); j++){
                     if (sgets[j].add(out)){
+                        found_secondary = true;
                         break;
                     }
                 }
@@ -150,55 +215,237 @@ class SmartMap{
 
                 gets.push_back(ContigGet(out,i));
             }
+        }
 
-            int nrecvs[comm_size] = {0};
-            for (int j = 0; j < gets.size(); j++){
-                nrecvs[gets[j].get_rank()]++;
+        inline void unify(std::vector<ContigGet>& gets, std::vector<UnifiedGet>& unified_gets){
+            unified_gets.reserve(comm_size);
+            for (int i = 0; i < comm_size; i++){
+                unified_gets.push_back(UnifiedGet(i));
             }
+            for (auto m : gets){
+                unified_gets[m.get_rank()].add(m);
+            }
+        }
 
-            //int* recvdata[comm_size];
+        inline int fill_nrecvs(int nrecvs[], std::vector<UnifiedGet>& unified_gets){
+            int total = 0;
+            for (int i = 0; i < comm_size; i++){
+                int n = unified_gets[i].get_n();
+                nrecvs[i] = n;
+                total += n;
+            }
+            return total;
+        }
+
+        inline void fill_origin(int origin[], int n[], int dests[], int nrecvs[], std::vector<UnifiedGet>& unified_gets){
+            int* origin_ptr = origin;
+            int* n_ptr = n;
+            int* dest_ptr = dests;
 
             for (int i = 0; i < comm_size; i++){
-                if(nrecvs[i] == 0)continue;
-                printf("rank %d expecting %d recvs from rank %d\n",comm_rank,nrecvs[i],i);
-                recv_data[i] = (send_recv_t*)malloc(sizeof(send_recv_t)*nrecvs[i]);
+                if (nrecvs[i] == 0)continue;
+                unified_gets[i].fill_sends(origin_ptr,n_ptr,dest_ptr);
+                origin_ptr += nrecvs[i];
+                n_ptr += nrecvs[i];
+                dest_ptr += nrecvs[i];
             }
-            
-            int nsends[comm_size] = {0};
+        }
 
+        inline int fill_nsends(int nrecvs[], int nsends[]){
             MPI_Alltoall(nrecvs,1,MPI_INT,nsends,1,MPI_INT,comm);
-
+            int total = 0;
             for (int i = 0; i < comm_size; i++){
-                if(nsends[i] == 0)continue;
-                printf("rank %d sending %d blocks to rank %d\n",comm_rank,nsends[i],i);
+                total += nsends[i];
+            }
+            return total;
+        }
+
+        inline void send_origin(int r_origin[], int r_n[], int s_origin[], int s_n[], int nrecvs[], int nsends[]){
+
+            int s_disp[comm_size];
+            int r_disp[comm_size];
+            s_disp[0] = 0;
+            r_disp[0] = 0;
+            for (int i = 1; i < comm_size; i++){
+                s_disp[i] = s_disp[i-1] + nrecvs[i-1];
+                r_disp[i] = r_disp[i-1] + nsends[i-1];
             }
 
+            MPI_Alltoallv(r_origin,nrecvs,s_disp,MPI_INT,s_origin,nsends,r_disp,MPI_INT,comm);
+            MPI_Alltoallv(r_n,nrecvs,s_disp,MPI_INT,s_n,nsends,r_disp,MPI_INT,comm);
+
+        }
+
+        inline void fill_send_info(int s_origin[], int s_n[], int nsends[]){
+            send_counts = (int*)malloc(sizeof(int)*total_sends);
+            send_idxs = (int*)malloc(sizeof(int)*total_sends);
+            send_ranks = (int*)malloc(sizeof(int)*total_sends);
+            send_tags = (int*)malloc(sizeof(int)*total_sends);
+
+            int* s_origin_ptr = s_origin;
+            int* s_n_ptr = s_n;
+            int* send_counts_ptr = send_counts;
+            int* send_idxs_ptr = send_idxs;
+            int* send_ranks_ptr = send_ranks;
+            int* send_tags_ptr = send_tags;
+
             for (int i = 0; i < comm_size; i++){
-                if(nrecvs[i] == 0)continue;
-                //free(recvdata[i]);
+                if (nsends[i] == 0)continue;
+                for (int j = 0; j < nsends[i]; j++){
+                    *send_counts_ptr++ = *s_n_ptr++;
+                    *send_idxs_ptr++ = *s_origin_ptr++;
+                    *send_ranks_ptr++ = i;
+                    *send_tags_ptr++ = j;
+                }
             }
+        }
+
+        inline void fill_recv_info(int r_dest[], int r_n[], int nrecvs[]){
+            recv_counts = (int*)malloc(sizeof(int)*total_recvs);
+            recv_idxs = (int*)malloc(sizeof(int)*total_recvs);
+            recv_ranks = (int*)malloc(sizeof(int)*total_recvs);
+            recv_tags = (int*)malloc(sizeof(int)*total_recvs);
+
+            int* r_dest_ptr = r_dest;
+            int* r_n_ptr = r_n;
+            int* recv_counts_ptr = recv_counts;
+            int* recv_idxs_ptr = recv_idxs;
+            int* recv_ranks_ptr = recv_ranks;
+            int* recv_tags_ptr = recv_tags;
+
+            for (int i = 0; i < comm_size; i++){
+                if (nrecvs[i] == 0)continue;
+                for (int j = 0; j < nrecvs[i]; j++){
+                    *recv_counts_ptr++ = *r_n_ptr++;
+                    *recv_idxs_ptr++ = *r_dest_ptr++;
+                    *recv_ranks_ptr++ = i;
+                    *recv_tags_ptr++ = j;
+                }
+            }
+        }
+
+        inline void fill_secondary_info(std::vector<SecondaryGet>& sgets){
+            total_secondary = sgets.size();
+            secondary_counts = (int*)malloc(sizeof(int) * total_secondary);
+            secondary_idxs = (int*)malloc(sizeof(int) * total_secondary);
+            secondary_sources = (int*)malloc(sizeof(int) * total_secondary);
+
+            for (int i = 0; i < total_secondary; i++){
+                secondary_counts[i] = sgets[i].get_count();
+                secondary_idxs[i] = sgets[i].get_idx();
+                secondary_sources[i] = sgets[i].get_source();
+            }
+        }
+
+        inline void setup_map(){
+            
+            std::vector<ContigGet> gets;
+            std::vector<SecondaryGet> sgets;
+            std::vector<UnifiedGet> unified_gets;
+
+            reduce(gets,sgets);
+
+            fill_secondary_info(sgets);
+            
+            unify(gets,unified_gets);
+
+            int nrecvs[comm_size];
+            int nsends[comm_size];
+
+            total_recvs = fill_nrecvs(nrecvs,unified_gets);
+
+            int r_origin[total_recvs];
+            int r_n[total_recvs];
+            int r_dests[total_recvs];
+
+            fill_origin(r_origin,r_n,r_dests,nrecvs,unified_gets);
+
+            fill_recv_info(r_dests,r_n,nrecvs);
+
+            total_sends = fill_nsends(nrecvs,nsends);
+
+            int s_origin[total_sends];
+            int s_n[total_sends];
+
+            send_origin(r_origin,r_n,s_origin,s_n,nrecvs,nsends);
+
+            fill_send_info(s_origin,s_n,nsends);
+
+            /*for (int i = 0; i < total_sends; i++){
+                printf("rank %d sending %d from %d to rank %d (tag = %d)\n",comm_rank,send_counts[i],send_idxs[i],send_ranks[i],send_tags[i]);
+            }
+
+            for (int i = 0; i < total_recvs; i++){
+                printf("rank %d recieving %d to %d from rank %d (tag = %d)\n",comm_rank,recv_counts[i],recv_idxs[i],recv_ranks[i],recv_tags[i]);
+            }
+
+            for (int i = 0; i < total_secondary; i++){
+                printf("rank %d mapping %d items from %d to %d\n",comm_rank,secondary_counts[i],secondary_sources[i],secondary_idxs[i]);
+            }*/
             
         }
 
-        inline SmartMap(MPI_Comm comm_, T* raw_, int n_, MapT map_) : comm(comm_), raw(raw_), n(n_), map(map_){
+        inline SmartMap(MPI_Comm comm_, int n_, MapT map_) : comm(comm_), n(n_), map(map_),send_counts(NULL),send_idxs(NULL),send_ranks(NULL),send_tags(NULL),
+                                                                        recv_counts(NULL),recv_idxs(NULL),recv_ranks(NULL),recv_tags(NULL),
+                                                                        secondary_counts(NULL), secondary_idxs(NULL), secondary_sources(NULL){
             MPI_Comm_size(comm,&comm_size);
             MPI_Comm_rank(comm,&comm_rank);
-            recv_data = (send_recv_t**)malloc(sizeof(send_recv_t*)*comm_size);
-            send_data = (send_recv_t**)malloc(sizeof(send_recv_t*)*comm_size);
-            for (int i = 0; i < comm_size; i++){
-                recv_data[i] = NULL;
-                send_data[i] = NULL;
-            }
             setup_map();
         }
 
         inline ~SmartMap(){
-            for (int i = 0; i < comm_size; i++){
-                if(send_data[i])free(send_data[i]);
-                if(recv_data[i])free(recv_data[i]);
+            if(send_counts)free(send_counts);
+            if(send_idxs)free(send_idxs);
+            if(send_ranks)free(send_ranks);
+            if(send_tags)free(send_tags);
+            if(recv_counts)free(recv_counts);
+            if(recv_idxs)free(recv_idxs);
+            if(recv_ranks)free(recv_ranks);
+            if(recv_tags)free(recv_tags);
+            if(secondary_counts)free(secondary_counts);
+            if(secondary_idxs)free(secondary_idxs);
+            if(secondary_sources)free(secondary_sources);
+        }
+
+        template<class T>
+        inline void execute(T* in, T* out){
+            for (int i = 0; i < total_sends; i++){
+                int n = send_counts[i];
+                int in_idx = send_idxs[i];
+                T* in_buff = &in[in_idx];
+                int dest = send_ranks[i];
+                int tag = send_tags[i];
+                printf("rank %d sending %d from %d to rank %d (tag = %d)\n",comm_rank,n,in_idx,dest,tag);
+                MPI_Request req;
+                MPI_Isend(in_buff,n * sizeof(T),MPI_BYTE,dest,tag,comm,&req);
+                MPI_Request_free(&req);
+                printf("rank %d sent %d from %d to rank %d (tag = %d)\n",comm_rank,n,in_idx,dest,tag);
             }
-            free(send_data);
-            free(recv_data);
+
+            for (int i = 0; i < total_recvs; i++){
+                int n = recv_counts[i];
+                int out_idx = recv_idxs[i];
+                T* out_buff = &out[out_idx];
+                int src = recv_ranks[i];
+                int tag = recv_tags[i];
+                printf("rank %d recieving %d to %d from rank %d (tag = %d)\n",comm_rank,n,out_idx,src,tag);
+                MPI_Request req;
+                MPI_Irecv(out_buff,n*sizeof(T),MPI_BYTE,src,tag,comm,&req);
+                MPI_Wait(&req,MPI_STATUS_IGNORE);
+                printf("rank %d recieved %d to %d from rank %d (tag = %d)\n",comm_rank,n,out_idx,src,tag);
+            }
+
+            for (int i = 0; i < total_secondary; i++){
+                int n = secondary_counts[i];
+                int source_idx = secondary_sources[i];
+                int dest_idx = secondary_idxs[i];
+                printf("rank %d mapping %d items from %d to %d\n",comm_rank,n,source_idx,dest_idx);
+                for (int j = 0; j < n; j++){
+                    out[dest_idx + j] = out[source_idx + j];
+                }
+                printf("rank %d mapped %d items from %d to %d\n",comm_rank,n,source_idx,dest_idx);
+            }
+            
         }
 
 };

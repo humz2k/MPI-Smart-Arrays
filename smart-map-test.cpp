@@ -18,23 +18,39 @@ class map_1{
         }
 
         inline map_return_t get(int idx){
-            int out_rank = (comm_rank + 1)%comm_size;
-            int out_idx = (idx + (idx/5)*2)%n;
+            int n_per = n / comm_size;
+
+            int out_rank = idx / n_per;//(comm_rank + 1)%comm_size;
+            int out_idx = idx % n_per;//(idx + (idx/5)*2)%n;
             return make_map_return(out_rank,out_idx);
         }
 
 };
 
 void test(){
-    int n = 10;
+    int n = 128;
     
     map_1 map(MPI_COMM_WORLD,n);
     
-    int* arr = (int*)malloc(sizeof(int) * n);
+    int world_rank; MPI_Comm_rank(MPI_COMM_WORLD,&world_rank);
 
-    SmartMap<int,map_1> my_smart_map(MPI_COMM_WORLD,arr,n,map);
+    int* in = (int*)malloc(sizeof(int) * n);
+    int* out = (int*)malloc(sizeof(int) * n);
+    for (int i = 0; i < n; i++){
+        in[i] = i;
+        if(!world_rank)printf("in[%d] = %d\n",i,in[i]);
+    }
 
-    free(arr);
+    SmartMap<map_1> my_smart_map(MPI_COMM_WORLD,n,map);
+
+    my_smart_map.execute(in,out);
+
+    for (int i = 0; i < n; i++){
+        if(!world_rank)printf("out[%d] = %d\n",i,out[i]);
+    }
+
+    free(in);
+    free(out);
 }
 
 int main(){
