@@ -43,7 +43,7 @@ void test(){
 
     SmartMap<map_1> my_smart_map(MPI_COMM_WORLD,n,map);
 
-    my_smart_map.execute(in,out);
+    my_smart_map.forward(in,out);
 
     for (int i = 0; i < n; i++){
         if(!world_rank)printf("out[%d] = %d\n",i,out[i]);

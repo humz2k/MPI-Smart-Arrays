@@ -3,36 +3,27 @@
 #include <stdarg.h>
 #include <mpi.h>
 #include "hvector.hpp"
-#include "smart-array.hpp"
+#include "mpi-smart-map.hpp"
 #include <cassert>
 #include <math.h>
+#include "fft_maps.hpp"
 
-//#define READ_BLOCKS
-#define MAP_CACHE_SZ 4
-int map_cache[MAP_CACHE_SZ];
-int map_cache_ptr = 0;
+struct cell{
+    int x;
+    int y;
+    int z;
+};
 
-inline int map_1(int i, hvec3<int>& ng, hvec3<int>& local_grid_size, hvec3<int>& dims, int nlocal){
-
-    int x = i / (ng.y * ng.z);
-    int y = (i/ng.z)%ng.y;
-    int z = i%ng.z;
-
-    int coord_x = x / local_grid_size.x;
-    int coord_y = y / local_grid_size.y;
-    int coord_z = z / local_grid_size.z;
-    int rank = coord_x * dims.y * dims.z + coord_y * dims.z + coord_z;
-    int local_x = x % local_grid_size.x;
-    int local_y = y % local_grid_size.y;
-    int local_z = z % local_grid_size.z;
-    int local_idx = local_x * local_grid_size.y * local_grid_size.z + local_y * local_grid_size.z + local_z;
-    int global_idx = rank * nlocal + local_idx;
-
-    return global_idx;
+inline cell make_cell(int x, int y, int z){
+    cell out;
+    out.x = x;
+    out.y = y;
+    out.z = z;
+    return out;
 }
 
 void test(){
-    hvec3<int> ng = make_hvec3(256,256,256);
+    hvec3<int> ng = make_hvec3(8,8,8);
     int world_rank;
     int world_size;
     MPI_Comm_rank(MPI_COMM_WORLD,&world_rank);
@@ -47,13 +38,11 @@ void test(){
     coords[1] = (world_rank - coords[0]*dims[1]*dims[2]) / dims[2];
     coords[2] = (world_rank - coords[0]*dims[1]*dims[2]) - coords[1] * dims[2];
 
-    //printf("rank %d coords = %d %d %d, local_grid = %d %d %d\n",world_rank,coords[0],coords[1],coords[2],local_grid_size[0],local_grid_size[1],local_grid_size[2]);
     if(!world_rank){
         printf("dims = [%d %d %d]\nlocal_grid_size = [%d %d %d]\nng = [%d %d %d]\n",dims.x,dims.y,dims.z,local_grid_size.x,local_grid_size.y,local_grid_size.z,dims.x,dims.y,dims.z);
     }
     
     MPI_Barrier(MPI_COMM_WORLD);
-
 
     int nlocal = local_grid_size.x*local_grid_size.y*local_grid_size.z;
 
@@ -63,9 +52,8 @@ void test(){
         printf("Optimal memory: %d | Actual memory: %d | Diff percent: %g\n",ng.x*ng.y*ng.z,nlocal*world_size,(((double)(nlocal*world_size - ng.x*ng.y*ng.z))/((double)ng.x*ng.y*ng.z))*100);
     }
 
-    int* raw = (int*)malloc(sizeof(int)*nlocal);
-
-    SmartArray<int> arr(MPI_COMM_WORLD,raw,nlocal,local_grid_size.z,world_size*4);
+    cell* buff1 = (cell*)malloc(sizeof(cell)*nlocal);
+    cell* buff2 = (cell*)malloc(sizeof(cell)*nlocal);
 
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -76,78 +64,39 @@ void test(){
                 int x = i + local_grid_size[0] * coords[0];
                 int y = j + local_grid_size[1] * coords[1];
                 int z = k + local_grid_size[2] * coords[2];
-                int global_idx = x * ng.y * ng.z + y * ng.z + z;
-                raw[idx] = global_idx;
-                //if(world_rank == 1){
-                //    printf("%d = %d\n",idx,global_idx);
-                //}
+                //int global_idx = x * ng.y * ng.z + y * ng.z + z;
+                buff1[idx] = make_cell(x,y,z);
                 idx++;
             }
         }
     }
-    arr.lock_writes();
-    MPI_Barrier(MPI_COMM_WORLD);
-
-    int n_pencils = ng.x * ng.y;
-    int pencils_per_rank = (n_pencils + (world_size - 1)) / world_size;
-    int my_pencil_start = pencils_per_rank * ng.z * world_rank;
-    int my_pencil_end = pencils_per_rank * ng.z + my_pencil_start;
-    if (my_pencil_end > ng.x*ng.y*ng.z){
-        printf("!!!\n");
-        my_pencil_end = ng.x*ng.y*ng.z;
-    }
-
-    printf("rank %d start = %d end = %d\n",world_rank,my_pencil_start,my_pencil_end);
-
-    int nffts = (my_pencil_end - my_pencil_start) / ng.z;
-    assert(nffts * ng.z == my_pencil_end - my_pencil_start);
-    int local_sz = nffts*ng.z;
-    int* local_arr = (int*)malloc(sizeof(int)*local_sz);
-    arr.start_timer();
-    //map_1 map;
-
-    #ifdef READ_BLOCKS
-    for (int i = my_pencil_start; i < my_pencil_end; i += arr.get_cache_block_size()){
-        //int x = i / (ng.y * ng.z);
-        //int y = (i - x*ng.y*ng.z) / ng.z;
-        //int z = (i - x*ng.y*ng.z) - y * ng.z;
-        int out = map_1(i,ng,local_grid_size,dims,nlocal);
-        arr.read_block(out,&local_arr[i-my_pencil_start]);
-        //local_arr[i - my_pencil_start] = arr.read(out);
-        //printf("rank %d getting %d %d %d\n",world_rank,x,y,z);
-    }
-    #else
-    //#pragma omp parallel for
-    for (int i = my_pencil_start; i < my_pencil_end; i++){
-        //int x = i / (ng.y * ng.z);
-        //int y = (i/ng.z)%ng.y;
-        //int z = i%ng.z;
-        
-        int my_map = map_1(i,ng,local_grid_size,dims,nlocal);
-        //#pragma omp critical
-        int out = arr.read(my_map);
-
-        local_arr[i - my_pencil_start] = out;
-    }
-    #endif
-
-    arr.stop_timer();
 
     MPI_Barrier(MPI_COMM_WORLD);
+    map_1 map1(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
+    SmartMap<map_1> my_smart_map_1(MPI_COMM_WORLD,nlocal,map1);
 
-    /*if(world_rank == 0){
-        for(int i = 0; i < local_sz; i++){
-            printf("%d = %d\n",i,local_arr[i]);
+    map_2 map2(MPI_COMM_WORLD,ng,local_grid_size,dims,coords,nlocal);
+    SmartMap<map_2> my_smart_map_2(MPI_COMM_WORLD,nlocal,map2);
+
+    my_smart_map_1.forward(buff1,buff2);
+    MPI_Barrier(MPI_COMM_WORLD);
+    if(!world_rank){
+        for (int i = 0; i < nlocal; i++){
+            //printf("rank %d: buff2[%d] = [%d,%d,%d]\n",world_rank,i,buff2[i].x,buff2[i].y,buff2[i].z);
         }
-    }*/
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    my_smart_map_2.forward(buff2,buff1);
+    MPI_Barrier(MPI_COMM_WORLD);
+    if(!world_rank){
+        for (int i = 0; i < nlocal; i++){
+            printf("rank %d: buff1[%d] = [%d,%d,%d]\n",world_rank,i,buff1[i].x,buff1[i].y,buff1[i].z);
+        }
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
 
-    //MPI_Barrier(MPI_COMM_WORLD);
-
-    free(local_arr);
-
-    free(raw);
-
-    arr.print_stats();
+    free(buff1);
+    free(buff2);
 }
 
 int main(){

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include "hvector.hpp"
 #include <vector>
+#include <string.h>
 
 struct map_return_t{
     int rank;
@@ -44,6 +45,7 @@ class ContigGet{
             if (!init)return false;
             if (in.rank != rank)return false;
             if (in.idx != (get_start + n))return false;
+            //printf("add?\n");
             n++;
             return true;
         }
@@ -131,6 +133,7 @@ class SecondaryGet{
         inline bool add(map_return_t in){
             if (!origin.is_secondary(in))return false;
             if (in.idx != (n+offset))return false;
+            //printf("ADD?\n");
             n++;
             return true;
         }
@@ -391,6 +394,14 @@ class SmartMap{
             MPI_Comm_size(comm,&comm_size);
             MPI_Comm_rank(comm,&comm_rank);
             setup_map();
+            MPI_Barrier(comm);
+            for (int i = 0; i < comm_size; i++){
+                if(comm_rank == i){
+                    printf("rank %d: total_sends = %d, total_recvs = %d, total_secondary = %d\n",comm_rank,total_sends,total_recvs,total_secondary);
+                }
+                MPI_Barrier(comm);
+            }
+            MPI_Barrier(comm);
         }
 
         inline ~SmartMap(){
@@ -408,18 +419,18 @@ class SmartMap{
         }
 
         template<class T>
-        inline void execute(T* in, T* out){
+        inline void forward(T* in, T* out){
             for (int i = 0; i < total_sends; i++){
                 int n = send_counts[i];
                 int in_idx = send_idxs[i];
                 T* in_buff = &in[in_idx];
                 int dest = send_ranks[i];
                 int tag = send_tags[i];
-                printf("rank %d sending %d from %d to rank %d (tag = %d)\n",comm_rank,n,in_idx,dest,tag);
+                //if(!comm_rank)printf("rank %d sending %d from %d to rank %d (tag = %d)\n",comm_rank,n,in_idx,dest,tag);
                 MPI_Request req;
                 MPI_Isend(in_buff,n * sizeof(T),MPI_BYTE,dest,tag,comm,&req);
                 MPI_Request_free(&req);
-                printf("rank %d sent %d from %d to rank %d (tag = %d)\n",comm_rank,n,in_idx,dest,tag);
+                //if(!comm_rank)printf("rank %d sent %d from %d to rank %d (tag = %d)\n",comm_rank,n,in_idx,dest,tag);
             }
 
             for (int i = 0; i < total_recvs; i++){
@@ -428,22 +439,20 @@ class SmartMap{
                 T* out_buff = &out[out_idx];
                 int src = recv_ranks[i];
                 int tag = recv_tags[i];
-                printf("rank %d recieving %d to %d from rank %d (tag = %d)\n",comm_rank,n,out_idx,src,tag);
+                //if(!comm_rank)printf("rank %d recieving %d to %d from rank %d (tag = %d)\n",comm_rank,n,out_idx,src,tag);
                 MPI_Request req;
                 MPI_Irecv(out_buff,n*sizeof(T),MPI_BYTE,src,tag,comm,&req);
                 MPI_Wait(&req,MPI_STATUS_IGNORE);
-                printf("rank %d recieved %d to %d from rank %d (tag = %d)\n",comm_rank,n,out_idx,src,tag);
+                //if(!comm_rank)printf("rank %d recieved %d to %d from rank %d (tag = %d)\n",comm_rank,n,out_idx,src,tag);
             }
 
             for (int i = 0; i < total_secondary; i++){
                 int n = secondary_counts[i];
                 int source_idx = secondary_sources[i];
                 int dest_idx = secondary_idxs[i];
-                printf("rank %d mapping %d items from %d to %d\n",comm_rank,n,source_idx,dest_idx);
-                for (int j = 0; j < n; j++){
-                    out[dest_idx + j] = out[source_idx + j];
-                }
-                printf("rank %d mapped %d items from %d to %d\n",comm_rank,n,source_idx,dest_idx);
+                //if(!comm_rank)printf("rank %d mapping %d items from %d to %d\n",comm_rank,n,source_idx,dest_idx);
+                memcpy(&out[dest_idx],&out[source_idx],n*sizeof(T));
+                //if(!comm_rank)printf("rank %d mapped %d items from %d to %d\n",comm_rank,n,source_idx,dest_idx);
             }
             
         }
