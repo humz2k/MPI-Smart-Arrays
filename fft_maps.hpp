@@ -111,28 +111,8 @@ class map_2{
             int rank = pencil_id / ((ng.x*ng.y)/world_size);
             int local_idx = idx % (((ng.x*ng.y)/world_size) * ng.z);
 
-            //if(world_rank == 0)
-            //    printf("rank %d mapping %d to rank %d idx %d\n",world_rank,i,rank,local_idx);
-
             return make_map_return(rank,local_idx);
             
-            /*int x = idx / (ng.y * ng.z);
-            int y = (idx/ng.z)%ng.y;
-            int z = idx%ng.z;
-
-            int coord_x = x / local_grid_size.x;
-            int coord_y = y / local_grid_size.y;
-            int coord_z = z / local_grid_size.z;
-            int rank = coord_x * dims.y * dims.z + coord_y * dims.z + coord_z;
-            int local_x = x % local_grid_size.x;
-            int local_y = y % local_grid_size.y;
-            int local_z = z % local_grid_size.z;
-            int local_idx = local_x * local_grid_size.y * local_grid_size.z + local_y * local_grid_size.z + local_z;
-
-            //if(!world_rank)
-            //    printf("rank %d mapping %d to rank %d idx %d\n",world_rank,i,rank,local_idx);
-
-            return make_map_return(rank,local_idx);*/
         }
 
 };

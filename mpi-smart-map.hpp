@@ -169,6 +169,7 @@ class SmartMap{
         int total_recvs;
         int total_sends;
         int total_secondary;
+        int total_local;
         int n;
 
         int* send_ranks;
@@ -184,16 +185,44 @@ class SmartMap{
         int* secondary_idxs;
         int* secondary_counts;
         int* secondary_sources;
+        
+        int* local_idxs;
+        int* local_counts;
+        int* local_sources;
 
     public:
-        inline void reduce(std::vector<ContigGet>& gets, std::vector<SecondaryGet>& sgets){
+        inline void reduce(std::vector<ContigGet>& gets, std::vector<SecondaryGet>& sgets, std::vector<ContigGet>& local_gets){
+            bool reset_local = true;
+            bool reset_global = false;
             for (int i = 0; i < n; i++){
                 map_return_t out = map.get(i);
-                if (gets.size() != 0){
-                    if (gets[gets.size()-1].add(out)){
-                        continue;
+                if (out.rank == comm_rank){
+                    if ((local_gets.size() != 0) && (!reset_local)){
+                        if (local_gets[local_gets.size()-1].add(out)){
+                            if(!comm_rank)printf("Adding contig! %d, %d\n",out.idx,i);
+                            continue;
+                        }
+                    }
+                    if(!comm_rank)printf("Should be new contig? %d, %d\n",out.idx,i);
+                    local_gets.push_back(ContigGet(out,i));
+                    reset_local = false;
+                    reset_global = true;
+                    continue;
+                }
+
+                reset_local = true;
+
+                if (!reset_global){
+                    if (gets.size() != 0){
+                        if (gets[gets.size()-1].add(out)){
+                            continue;
+                        }
                     }
                 }
+
+                reset_global = false;
+                
+
                 bool found_secondary = false;
 
                 for (int j = 0; j < sgets.size(); j++){
@@ -340,13 +369,30 @@ class SmartMap{
             }
         }
 
+        inline void fill_local_info(std::vector<ContigGet>& local_gets){
+            total_local = local_gets.size();
+            local_counts = (int*)malloc(sizeof(int) * total_local);
+            local_idxs = (int*)malloc(sizeof(int) * total_local);
+            local_sources = (int*)malloc(sizeof(int) * total_local);
+
+            for (int i = 0; i < total_local; i++){
+                local_counts[i] = local_gets[i].send_n();
+                local_idxs[i] = local_gets[i].recv_start();
+                local_sources[i] = local_gets[i].send_start();
+                //printf("local %d %d %d\n",local_counts[i],local_idxs[i],)
+            }
+        }
+
         inline void setup_map(){
             
             std::vector<ContigGet> gets;
+            std::vector<ContigGet> local_gets;
             std::vector<SecondaryGet> sgets;
             std::vector<UnifiedGet> unified_gets;
 
-            reduce(gets,sgets);
+            reduce(gets,sgets,local_gets);
+
+            fill_local_info(local_gets);
 
             fill_secondary_info(sgets);
             
@@ -390,14 +436,15 @@ class SmartMap{
 
         inline SmartMap(MPI_Comm comm_, int n_, MapT map_) : comm(comm_), n(n_), map(map_),send_counts(NULL),send_idxs(NULL),send_ranks(NULL),send_tags(NULL),
                                                                         recv_counts(NULL),recv_idxs(NULL),recv_ranks(NULL),recv_tags(NULL),
-                                                                        secondary_counts(NULL), secondary_idxs(NULL), secondary_sources(NULL){
+                                                                        secondary_counts(NULL), secondary_idxs(NULL), secondary_sources(NULL),
+                                                                        local_counts(NULL),local_idxs(NULL),local_sources(NULL){
             MPI_Comm_size(comm,&comm_size);
             MPI_Comm_rank(comm,&comm_rank);
             setup_map();
             MPI_Barrier(comm);
             for (int i = 0; i < comm_size; i++){
                 if(comm_rank == i){
-                    printf("rank %d: total_sends = %d, total_recvs = %d, total_secondary = %d\n",comm_rank,total_sends,total_recvs,total_secondary);
+                    printf("rank %d: total_sends = %d, total_recvs = %d, total_secondary = %d, total_local = %d\n",comm_rank,total_sends,total_recvs,total_secondary,total_local);
                 }
                 MPI_Barrier(comm);
             }
@@ -416,6 +463,9 @@ class SmartMap{
             if(secondary_counts)free(secondary_counts);
             if(secondary_idxs)free(secondary_idxs);
             if(secondary_sources)free(secondary_sources);
+            if(local_counts)free(local_counts);
+            if(local_idxs)free(local_idxs);
+            if(local_sources)free(local_sources);
         }
 
         template<class T>
@@ -431,6 +481,16 @@ class SmartMap{
                 MPI_Isend(in_buff,n * sizeof(T),MPI_BYTE,dest,tag,comm,&req);
                 MPI_Request_free(&req);
                 //if(!comm_rank)printf("rank %d sent %d from %d to rank %d (tag = %d)\n",comm_rank,n,in_idx,dest,tag);
+            }
+
+            for (int i = 0; i < total_local; i++){
+                int n = local_counts[i];
+                int in_idx = local_sources[i];
+                T* in_buff = &in[in_idx];
+                int out_idx = local_idxs[i];
+                T* out_buff = &out[out_idx];
+                if(!comm_rank)printf("rank %d moving local %d to %d, size %d\n",comm_rank,in_idx,out_idx,n);
+                memcpy(out_buff,in_buff,n*sizeof(T));
             }
 
             for (int i = 0; i < total_recvs; i++){
