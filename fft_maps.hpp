@@ -6,7 +6,7 @@
 #include <stdarg.h>
 #include <mpi.h>
 #include "hvector.hpp"
-#include "mpi-smart-map.hpp"
+#include "mpi-map.hpp"
 #include <cassert>
 #include <math.h>
 
@@ -38,7 +38,7 @@ class map_1{
 
         }
 
-        inline map_return_t get(int i){
+        inline map_return_t map(int i){
             
             int this_pencil = i / ng.z;
             int this_pencil_start = world_rank * pencils_per_rank + this_pencil;
@@ -64,7 +64,7 @@ class map_1{
             //if(!world_rank)
             //    printf("rank %d mapping %d to rank %d idx %d\n",world_rank,i,rank,local_idx);
 
-            return make_map_return(rank,local_idx);
+            return make_map_return(rank,local_idx,i);
         }
 
 };
@@ -97,7 +97,7 @@ class map_2{
 
         }
 
-        inline map_return_t get(int i){
+        inline map_return_t map(int i){
             
             int this_pencil = i / ng.y;
             int this_pencil_start = world_rank * pencils_per_rank + this_pencil;
@@ -111,19 +111,11 @@ class map_2{
             int rank = pencil_id / ((ng.x*ng.y)/world_size);
             int local_idx = idx % (((ng.x*ng.y)/world_size) * ng.z);
 
-            return make_map_return(rank,local_idx);
+            return make_map_return(rank,local_idx,i);
             
         }
 
 };
-
-/*inline int rerack_addr(int i, int ngz, int ngy){
-    int x = 0;
-    int z = i / ngz;
-    int y = i % (ngz);
-    return z * ngz * ngy + y * ngy + x;
-
-}*/
 
 class map_3{
     private:
@@ -153,7 +145,7 @@ class map_3{
 
         }
 
-        inline map_return_t get(int i){
+        inline map_return_t map(int i){
             
             int this_pencil = i / ng.x;
             int this_pencil_start = world_rank * pencils_per_rank + this_pencil;
@@ -167,7 +159,7 @@ class map_3{
             int rank = pencil_id / ((ng.x*ng.z)/world_size);
             int local_idx = idx % (((ng.x*ng.z)/world_size) * ng.y);
 
-            return make_map_return(rank,local_idx);
+            return make_map_return(rank,local_idx,i);
             
         }
 

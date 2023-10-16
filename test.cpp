@@ -44,7 +44,7 @@ int main(){
         in[i] = world_rank;
     }
 
-    my_smart_map.execute(in,out);
+    my_smart_map.forward(in,out);
 
     if(world_rank == 1){
         for (int i = 0; i < n; i++){

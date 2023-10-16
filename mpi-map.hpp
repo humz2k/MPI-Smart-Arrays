@@ -54,32 +54,33 @@ class SmartMap{
         }
 
         template<class T>
-        inline void execute(T* in, T* out){
+        inline void forward(T* in, T* out){
             MPI_Request send_reqs[comm_size];
             MPI_Request get_reqs[comm_size];
 
+            int count = 0;
             for (int i = 0; i < comm_size; i++){
 
                 if (nsends[i] == 0)continue;
 
-                int start = rank_buff_starts[i];
-                int count = start;
+                int start = count;
                 for (int j = 0; j < nsends[i]; j++){
                     get_serial_t this_get = sends[send_starts[i] + j];
                     for (int k = 0; k < this_get.n; k++){
                         int get_idx = this_get.src + k*this_get.stride;
                         int out_idx = count++;
-                        //printf("rank %d moving %d to %d\n",comm_rank,get_idx,out_idx);
                         out[out_idx] = in[get_idx];
                     }
                 }
 
-                MPI_Isend(&out[start],rank_buff_ns[i] * sizeof(T),MPI_BYTE,i,0,comm,&send_reqs[i]);
+                MPI_Isend(&out[start],(count - start) * sizeof(T),MPI_BYTE,i,0,comm,&send_reqs[i]);
             }
 
+            count = 0;
             for (int i = 0; i < comm_size; i++){
                 if (ngets[i] == 0)continue;
-                MPI_Irecv(&in[get_buff_starts[i]],nelems[i] * sizeof(T),MPI_BYTE,i,0,comm,&get_reqs[i]);
+                MPI_Irecv(&in[count],nelems[i] * sizeof(T),MPI_BYTE,i,0,comm,&get_reqs[i]);
+                count += nelems[i];
             }
 
             for (int i = 0; i < comm_size; i++){
@@ -87,15 +88,10 @@ class SmartMap{
                 MPI_Wait(&send_reqs[i],MPI_STATUS_IGNORE);
             }
 
+            count = 0;
             for (int i = 0; i < comm_size; i++){
                 if(ngets[i] == 0)continue;
                 MPI_Wait(&get_reqs[i],MPI_STATUS_IGNORE);
-            }
-
-            for (int i = 0; i < comm_size; i++){
-                if (ngets[i] == 0)continue;
-                int start = get_buff_starts[i];
-                int count = start;
                 for (int j = 0; j < ngets[i]; j++){
                     get_serial_t this_get = gets[starts[i] + j];
                     for (int k = 0; k < this_get.n; k++){
@@ -105,6 +101,75 @@ class SmartMap{
                     }
                 }
             }
+
+        }
+
+        template<class T>
+        inline void backward(T* in, T* out){
+            MPI_Request send_reqs[comm_size];
+            MPI_Request get_reqs[comm_size];
+
+            int count = 0;
+            for (int i = 0; i < comm_size; i++){
+                if(ngets[i] == 0)continue;
+                for (int j = 0; j < ngets[i]; j++){
+                    get_serial_t this_get = gets[starts[i] + j];
+                    for (int k = 0; k < this_get.n; k++){
+                        int out_idx = this_get.dest + k;
+                        int get_idx = count++;
+                        out[get_idx] = in[out_idx];
+                    }
+                }
+            }
+
+            count = 0;
+            for (int i = 0; i < comm_size; i++){
+                if (ngets[i] == 0)continue;
+                MPI_Isend(&out[count],nelems[i] * sizeof(T),MPI_BYTE,i,0,comm,&send_reqs[i]);
+                count += nelems[i];
+            }
+
+            count = 0;
+            for (int i = 0; i < comm_size; i++){
+
+                if (nsends[i] == 0)continue;
+
+                int start = count;
+                for (int j = 0; j < nsends[i]; j++){
+                    get_serial_t this_get = sends[send_starts[i] + j];
+                    count += this_get.n;
+                }
+
+                MPI_Irecv(&in[start],(count - start) * sizeof(T),MPI_BYTE,i,0,comm,&get_reqs[i]);
+                
+            }
+
+            for (int i = 0; i < comm_size; i++){
+                if (ngets[i] == 0)continue;
+                MPI_Wait(&send_reqs[i],MPI_STATUS_IGNORE);
+            }
+
+            for (int i = 0; i < comm_size; i++){
+                if (nsends[i] == 0)continue;
+                MPI_Wait(&get_reqs[i],MPI_STATUS_IGNORE);
+            }
+
+            count = 0;
+            for (int i = 0; i < comm_size; i++){
+
+                if (nsends[i] == 0)continue;
+
+                int start = count;
+                for (int j = 0; j < nsends[i]; j++){
+                    get_serial_t this_get = sends[send_starts[i] + j];
+                    for (int k = 0; k < this_get.n; k++){
+                        int get_idx = this_get.src + k*this_get.stride;
+                        int out_idx = count++;
+                        out[get_idx] = in[out_idx];
+                    }
+                }
+            }
+
         }
 
         inline ~SmartMap(){
