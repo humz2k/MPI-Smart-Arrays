@@ -1,10 +1,10 @@
 main:
-	mpicxx -O3 fft_test.cpp -o fft_test.o -fopenmp
+	mpicxx -O3 test.cpp -o test.o -fopenmp
 
-N ?= 8
+N ?= 2
 
 run:
-	mpirun -n $(N) ./fft_test.o
+	mpirun -n $(N) ./test.o
 
 clean:
 	rm *.o
