@@ -1,10 +1,6 @@
+.PHONY: main
 main:
-	mpicxx -O3 fft_test.cpp -o fft_test.o -fopenmp
-
-N ?= 8
-
-run:
-	mpirun -n $(N) ./fft_test.o
+	mpic++ -O3 -std=c++17 test.cpp -o test.o -fopenmp
 
 clean:
 	rm *.o
